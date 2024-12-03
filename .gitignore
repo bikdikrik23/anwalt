@@ -1,0 +1,11 @@
+# Ignoriere node_modules Ordner
+node_modules/
+
+# Ignoriere files Ordner
+files/
+
+# Ignoriere data Ordner
+data/
+
+.env
+.env.txt
