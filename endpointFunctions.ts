@@ -290,7 +290,7 @@ export async function handleFileUploadBeratung(bot: bot,request_chain: request_c
       return;
     }
 
-    beratung.infos.push({name: loInfoRequirement.name, type: loInfoRequirement.type, value: loFilePath});
+    beratung.infos.push({name: loInfoRequirement.name, type: loInfoRequirement.type, value: loFilePath, new: true});
 
     // Speichere die aktualisierte Beratung
     await database.saveDatabase(main.db);
@@ -308,4 +308,46 @@ export async function handleFileUploadBeratung(bot: bot,request_chain: request_c
     // Aufräumen der Request-Chain
     request_chain.data.files = [];
   }
+}
+
+export async function handleBeratungsGespräch(bot: bot, request_chain: request_chain, input: string){
+  if(input.startsWith(`🏠 Zurück ins Hauptmenü`)){
+    await initBeratungMenu(bot, request_chain, request_chain.data.beratung) 
+    return
+  }
+
+  const loMandant = db.mandanten.find((m) => m.tg_id === request_chain.user);
+  const loBeratung = loMandant.beratungen.find((b) => b.name === request_chain.data.beratung.name);
+  
+  if(!loBeratung){
+     console.log(`FEHLER BERATUNG ${request_chain.data.beratung.name} NOT FOUND!`)
+     return
+  }
+
+  let loTopic = topics.find(t=>t.name === loBeratung.topic)
+  if(!loTopic){
+    console.log(`FEHLER TOPIC ${loBeratung.topic} NOT FOUND!`)
+    return
+  }
+
+  const loLoadingContext = await bt.initLoadingBar(bot, request_chain.user);
+
+  loBeratung.verlauf.push(`User: ${input}`);
+  await database.saveDatabase(db);
+
+  let extractInfos = await ai.extractInfos(input, loTopic, loBeratung.infos)
+
+  if(extractInfos.length > 0){
+    loBeratung.infos = bt.updateInfos(loBeratung.infos, extractInfos)
+    await database.saveDatabase(db)
+  }
+  
+  const aiResponse = await ai.generateLegalAdvice(loBeratung);
+  loBeratung.verlauf.push(`Anwalt KI: ${aiResponse}`);
+  await database.saveDatabase(db);
+  bt.endLoadingBar(bot, request_chain.user, loLoadingContext);
+
+  let loOptions = bt.getBeratungsMenu(loBeratung)
+  await bot.sendMessage(request_chain.user, aiResponse, loOptions);
+
 }

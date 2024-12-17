@@ -1,8 +1,10 @@
+import { request_chain } from "./tg_bot_tools";
 import * as types from "./types"
 import * as fs from 'fs/promises';
 
 export const devTopicsPath = './data/dev_topics.json';
 export const dbPath = './data/db.json'
+export const requestsPath = './data/requests.json'
 
 export async function saveDevTopic(topic: any) {
   try {
@@ -39,4 +41,20 @@ export async function saveDatabase(db: types.Datenbank) {
 export async function getDatabase(): Promise<types.Datenbank>{
     let dbString = await fs.readFile(dbPath, 'utf-8');
     return JSON.parse(dbString) 
+}
+
+export async function saveRequestChains(requests: request_chain[]) {
+  console.log('Speichere Requests...');
+  try {
+    await fs.writeFile(requestsPath, JSON.stringify(requests, null, 2), 'utf-8');
+    console.log('Datenbank erfolgreich gespeichert.');
+    console.log(requests)
+  } catch (error) {
+    console.error('Fehler beim Speichern der Datenbank:', error);
+  }
+}
+
+export async function getRequestChains(): Promise<types.Datenbank>{
+  let dbString = await fs.readFile(requestsPath, 'utf-8');
+  return JSON.parse(dbString) 
 }

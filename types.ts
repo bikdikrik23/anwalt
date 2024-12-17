@@ -28,12 +28,13 @@ export interface InfoRequirement {
 export interface InfoData {
   name: string;                  
   type: "text" | "date" | "photo" | "file"; 
-  value: string | string[] | number; 
+  value: string | string[] | number;
+  new: boolean 
 }
 
 export interface ActionLog {
   name: string;                   
-  timestamp: Date;             
+  timestamp: number;             
   result: string | null;         
 }
 

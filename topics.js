@@ -51,10 +51,10 @@ exports.mainTopics = [
                 prerequisites: []
             },
             {
-                name: "Wiederspruchserklärung verfassen",
+                name: "Widerspruchserklärung verfassen",
                 prerequisites: ["Klausur", "Korrektur"],
                 optionalRequisites: ["Aufgabenstellung"],
-                onExecute: actions.createWiderspruch
+                onExecute: actions.createWiderspruchAnalyse
             }
         ]
     }, {

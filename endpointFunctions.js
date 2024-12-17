@@ -41,11 +41,13 @@ exports.handleSelectBeratung = handleSelectBeratung;
 exports.handleStatusAndProgress = handleStatusAndProgress;
 exports.initBeratungMenu = initBeratungMenu;
 exports.handleFileUploadBeratung = handleFileUploadBeratung;
+exports.handleBeratungsGespräch = handleBeratungsGespräch;
 const anwalt_1 = require("./anwalt");
 const dedent_1 = __importDefault(require("dedent"));
 const ai = __importStar(require("./aitools"));
 const bt = __importStar(require("./basictools"));
 const main = __importStar(require("./anwalt"));
+const database = __importStar(require("./database"));
 async function handleCreateNewBeratung(bot, request_chain, input) {
     let new_beratung = {
         id: anwalt_1.db.mandanten.find(m => m.tg_id === request_chain.user).beratungen.length,
@@ -231,7 +233,6 @@ async function handleStatusAndProgress(bot, request_chain) {
     await bot.sendMessage(request_chain.user, loMessage, loOptions, null, request_chain);
 }
 async function initBeratungMenu(bot, request_chain, beratung) {
-    let loTopic = anwalt_1.topics.find(t => t.name === beratung.topic);
     let loMessage = (0, dedent_1.default) `
     🗂️ *${beratung.name}*
     
@@ -291,9 +292,9 @@ async function handleFileUploadBeratung(bot, request_chain, input, beratung, top
             await bot.sendMessage(request_chain.user, `...`, request_chain.data.last_menu);
             return;
         }
-        beratung.infos.push({ name: loInfoRequirement.name, type: loInfoRequirement.type, value: loFilePath });
+        beratung.infos.push({ name: loInfoRequirement.name, type: loInfoRequirement.type, value: loFilePath, new: true });
         // Speichere die aktualisierte Beratung
-        await main.saveDatabase();
+        await database.saveDatabase(main.db);
         // Ladeanimation beenden und Erfolgsmeldung senden
         await bt.endLoadingBar(bot, request_chain.user, loLoadingContext, "✅ Datei wurde erfolgreich verarbeitet.");
         await bt.sleep(1000);
@@ -309,4 +310,35 @@ async function handleFileUploadBeratung(bot, request_chain, input, beratung, top
         // Aufräumen der Request-Chain
         request_chain.data.files = [];
     }
+}
+async function handleBeratungsGespräch(bot, request_chain, input) {
+    if (input.startsWith(`🏠 Zurück ins Hauptmenü`)) {
+        await initBeratungMenu(bot, request_chain, request_chain.data.beratung);
+        return;
+    }
+    const loMandant = anwalt_1.db.mandanten.find((m) => m.tg_id === request_chain.user);
+    const loBeratung = loMandant.beratungen.find((b) => b.name === request_chain.data.beratung.name);
+    if (!loBeratung) {
+        console.log(`FEHLER BERATUNG ${request_chain.data.beratung.name} NOT FOUND!`);
+        return;
+    }
+    let loTopic = anwalt_1.topics.find(t => t.name === loBeratung.topic);
+    if (!loTopic) {
+        console.log(`FEHLER TOPIC ${loBeratung.topic} NOT FOUND!`);
+        return;
+    }
+    const loLoadingContext = await bt.initLoadingBar(bot, request_chain.user);
+    loBeratung.verlauf.push(`User: ${input}`);
+    await database.saveDatabase(anwalt_1.db);
+    let extractInfos = await ai.extractInfos(input, loTopic, loBeratung.infos);
+    if (extractInfos.length > 0) {
+        loBeratung.infos = bt.updateInfos(loBeratung.infos, extractInfos);
+        await database.saveDatabase(anwalt_1.db);
+    }
+    const aiResponse = await ai.generateLegalAdvice(loBeratung);
+    loBeratung.verlauf.push(`Anwalt KI: ${aiResponse}`);
+    await database.saveDatabase(anwalt_1.db);
+    bt.endLoadingBar(bot, request_chain.user, loLoadingContext);
+    let loOptions = bt.getBeratungsMenu(loBeratung);
+    await bot.sendMessage(request_chain.user, aiResponse, loOptions);
 }

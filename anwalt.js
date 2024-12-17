@@ -36,61 +36,22 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.platzhalterMessage = exports.backNav = exports.anwalt_bot = exports.topics = exports.db = void 0;
-exports.saveDatabase = saveDatabase;
+exports.anwalt_bot = exports.platzhalterMessage = exports.backNav = exports.topics = exports.db = void 0;
 require('dotenv').config();
 const dedent_1 = __importDefault(require("dedent"));
-const fs = __importStar(require("fs/promises"));
+const database = __importStar(require("./database"));
 const tb = __importStar(require("./tg_bot_tools"));
 const ai = __importStar(require("./aitools"));
 const bt = __importStar(require("./basictools"));
+const settings_json_1 = __importDefault(require("./settings.json"));
 const topics_1 = require("./topics");
 const endpointFunctions_1 = require("./endpointFunctions");
-const path = require('path');
-const axios = require('axios');
 exports.topics = topics_1.mainTopics;
-const devTopicsPath = './data/dev_topics.json';
-const dbPath = './data/db.json';
-async function saveDevTopic(topic) {
+async function initDBAndTopics() {
     try {
-        const existingTopics = await loadDevTopics();
-        existingTopics.push(topic);
-        await fs.writeFile(devTopicsPath, JSON.stringify(existingTopics, null, 2), 'utf-8');
-        console.log(`Neues Topic gespeichert: ${topic.name}`);
-    }
-    catch (error) {
-        console.error('Fehler beim Speichern eines neuen Topics:', error);
-    }
-}
-async function loadDevTopics() {
-    try {
-        const data = await fs.readFile(devTopicsPath, 'utf-8');
-        return JSON.parse(data);
-    }
-    catch (error) {
-        console.error('Fehler beim Laden der dynamischen Topics. Erstelle leere Liste.');
-        return [];
-    }
-}
-// Funktion zum Speichern der DB in die JSON-Datei
-async function saveDatabase() {
-    console.log('Speichere Datenbank...');
-    try {
-        await fs.writeFile(dbPath, JSON.stringify(exports.db, null, 2), 'utf-8');
-        console.log('Datenbank erfolgreich gespeichert.');
-        console.log(exports.db);
-    }
-    catch (error) {
-        console.error('Fehler beim Speichern der Datenbank:', error);
-    }
-}
-(async () => {
-    try {
-        const data = await fs.readFile(dbPath, 'utf-8'); // Datei asynchron einlesen
-        exports.db = JSON.parse(data); // Inhalt in ein Objekt konvertieren
-        let dynamicTopicsEnabled = true;
-        if (dynamicTopicsEnabled) {
-            let dynamicTopics = await loadDevTopics();
+        exports.db = await database.getDatabase();
+        if (settings_json_1.default.dev_topics) {
+            let dynamicTopics = await database.loadDevTopics();
             exports.topics = [...exports.topics, ...dynamicTopics];
         }
         console.log('Datenbank erfolgreich eingelesen:', exports.db);
@@ -98,14 +59,12 @@ async function saveDatabase() {
     catch (error) {
         console.error('Fehler beim Einlesen der Datenbank:', error);
     }
-})();
-const anwalt_bot_token = "7222984132:AAFCZQKwTODGIGepwvfT-Kh5QJuIMi4synY";
-exports.anwalt_bot = new tb.bot(anwalt_bot_token, { button_type: "inline" });
+}
+//Konstanten für Bot Routen
 exports.backNav = [{ text: "🔙 Zurück" }, { text: "🏠 Startseite" }];
 exports.platzhalterMessage = "...                                                               ...";
-let startMenuTemplate = [
-    [{ text: `*Hugel & AI 🏛 *` }, { text: `Nutzungsbedingungen 🛡️` }]
-];
+exports.anwalt_bot = new tb.bot(process.env.TG_BOT_TOKEN, { button_type: "inline" });
+//Definition der einzelnen Bot-Routen wenn man so will...
 exports.anwalt_bot.addCommand({
     name: "start",
     onExecute: async (request_chain, input) => {
@@ -135,7 +94,7 @@ exports.anwalt_bot.addCommand({
             [{ text: `⚖ Offene Beratungen (${loMandant.beratungen.length})` }],
             [{ text: `Hugel & AI 🏛` }, { text: `Nutzungsbedingungen 🛡️` }]
         ];
-        await exports.anwalt_bot.sendMessage(request_chain.user, loMsg, loStartMenu);
+        await exports.anwalt_bot.sendMessage(request_chain.user, loMsg, loStartMenu, {}, request_chain);
         request_chain.requests.push({ command_name: "home", input: "" });
     }
 });
@@ -163,14 +122,14 @@ exports.anwalt_bot.addCommand({
                 🔍 Teilen Sie uns Ihr Anliegen mit, und wir kümmern uns schnell und zuverlässig darum.
 
                 💼 Ihr Recht – unser Fokus!`;
-                await exports.anwalt_bot.sendMessage(request_chain.user, loMsg, loStartMenu);
+                await exports.anwalt_bot.sendMessage(request_chain.user, loMsg, loStartMenu, {}, request_chain);
             }
             else {
                 let loOptions = [exports.backNav];
                 for (let i = 0; i < loMandant.beratungen.length; i++) {
                     loOptions.push([{ text: loMandant.beratungen[i].name }]);
                 }
-                await exports.anwalt_bot.sendMessage(request_chain.user, `⚖ Wähle die gewünschte offene Beratung!`, loOptions);
+                await exports.anwalt_bot.sendMessage(request_chain.user, `⚖ Wähle die gewünschte offene Beratung!`, loOptions, {}, request_chain);
                 request_chain.requests.push({ command_name: "beratungen", input: "" });
             }
         }
@@ -197,7 +156,7 @@ exports.anwalt_bot.addCommand({
             💼 *Ihr Recht – unser Ziel!*  
             Hugel & AI – Ihr digitaler Partner im Recht.
           `;
-            await exports.anwalt_bot.sendMessage(request_chain.user, loMsg, [exports.backNav, ...topics_1.mainTopics.map(t => { return [{ text: t.name }]; })]);
+            await exports.anwalt_bot.sendMessage(request_chain.user, loMsg, [exports.backNav, ...topics_1.mainTopics.map(t => { return [{ text: t.name }]; })], {}, request_chain);
             request_chain.requests.push({ command_name: "new_beratung", input: "" });
         }
         else if (input.startsWith('Hugel')) {
@@ -217,7 +176,7 @@ exports.anwalt_bot.addCommand({
     
             *Ihr Recht – Unser Ziel!*  
             Hugel & AI – Ihr digitaler Partner für rechtliche Angelegenheiten.`;
-            await exports.anwalt_bot.sendMessage(request_chain.user, loMsg, loStartMenu);
+            await exports.anwalt_bot.sendMessage(request_chain.user, loMsg, loStartMenu, {}, request_chain);
             request_chain.requests.push({ command_name: "home", input: "" });
         }
         else if (input.startsWith(`Nutzungsbedingungen`)) {
@@ -230,7 +189,7 @@ exports.anwalt_bot.addCommand({
             }
             else {
                 let aiDecision = await ai.decideHomeInputStep(loMandant, input);
-                await exports.anwalt_bot.sendMessage(request_chain.user, aiDecision.text, aiDecision.actions.map(a => { return [{ text: a }]; }));
+                await exports.anwalt_bot.sendMessage(request_chain.user, aiDecision.text, aiDecision.actions.map(a => { return [{ text: a }]; }), {}, request_chain);
             }
         }
     }
@@ -240,7 +199,7 @@ exports.anwalt_bot.addCommand({
     onExecute: async (request_chain, input) => {
         const selectedTopic = request_chain.data.selectedTopic;
         if (!selectedTopic) {
-            await exports.anwalt_bot.sendMessage(request_chain.user, "❌ Fehler: Kein ausgewähltes Thema gefunden. Bitte starten Sie erneut.", [exports.backNav]);
+            await exports.anwalt_bot.sendMessage(request_chain.user, "❌ Fehler: Kein ausgewähltes Thema gefunden. Bitte starten Sie erneut.", [exports.backNav], {}, request_chain);
             return;
         }
         // Beratung erstellen mit ausgewähltem Topic und eingegebenem Titel
@@ -265,7 +224,7 @@ exports.anwalt_bot.addCommand({
             exports.backNav,
             [{ text: "✏️ Titel ändern" }],
             [{ text: "🚀 Beratung starten" }],
-        ]);
+        ], {}, request_chain);
         request_chain.requests.push({ command_name: "start_beratung", input: "" });
     },
 });
@@ -287,7 +246,7 @@ exports.anwalt_bot.addCommand({
 
         💡 Der Titel hilft uns, Ihre Beratung klar zu benennen und weiterzuführen.
       `;
-            await exports.anwalt_bot.sendMessage(request_chain.user, loMsg, [exports.backNav]);
+            await exports.anwalt_bot.sendMessage(request_chain.user, loMsg, [exports.backNav], {}, request_chain);
             request_chain.requests.push({ command_name: "new_beratung_title", input: "" }); // Weiterleitung zur Titelabfrage
             return;
         }
@@ -302,7 +261,7 @@ exports.anwalt_bot.addCommand({
         if (input === '🚀 Beratung starten') {
             if (request_chain.data.new_topic) {
                 exports.topics.push(request_chain.data.new_topic);
-                await saveDevTopic(request_chain.data.new_topic);
+                await database.saveDevTopic(request_chain.data.new_topic);
                 console.log(`NEUES DEV TOPIC ${request_chain.data.new_topic.name} wurde gespeichert`);
                 request_chain.data.new_topic = null;
             }
@@ -311,7 +270,7 @@ exports.anwalt_bot.addCommand({
             console.log(`BERATUNG GEFUNDEN!`);
             const topic = exports.topics.find(t => t.name === loBeratung.topic);
             if (!topic) {
-                await exports.anwalt_bot.sendMessage(request_chain.user, `❌ Thema für diese Beratung nicht gefunden.`);
+                await exports.anwalt_bot.sendMessage(request_chain.user, `❌ Thema für diese Beratung nicht gefunden.`, request_chain.data.last_menu, {}, request_chain);
                 return;
             }
             let loOptions = bt.getBeratungsMenu(loBeratung);
@@ -323,13 +282,13 @@ exports.anwalt_bot.addCommand({
       
       Wähle eine Option aus:
       - *Gespräch fortsetzen:* Um die Beratung zu starten.
-      - *Status und Fortschritt:* Überblick über alle gesammelten Infos, noch offene Anforderungen und bereits durchgeführte Aktionen.
+      - *Status:* Überblick über alle gesammelten Infos, noch offene Anforderungen und bereits durchgeführte Aktionen.
       - *Anwalt kontaktieren:* Kontaktiere direkt einen Anwalt.
       `;
-            await exports.anwalt_bot.sendMessage(request_chain.user, loMessage, loOptions);
+            await exports.anwalt_bot.sendMessage(request_chain.user, loMessage, loOptions, {}, request_chain);
             request_chain.requests.push({ command_name: "beratung_menu", input: "" });
             loMandant.beratungen.push(loBeratung);
-            await saveDatabase();
+            await database.saveDatabase(exports.db);
             request_chain.requests.push({ command_name: "beratung_menu", input: "" });
             bt.endLoadingBar(exports.anwalt_bot, request_chain.user, loLoadingContext, `✅ Beratung "${loBeratung.name}" erfolgreich initialisiert!`);
         }
@@ -359,18 +318,18 @@ exports.anwalt_bot.addCommand({
                 await bt.sleep(1000);
             }
         }
+        let loOptions = await bt.getBeratungsMenu(loBeratung);
         await exports.anwalt_bot.sendMessage(request_chain.user, (0, dedent_1.default) `
       ✅  *Das Gespräch ist bereit zur Fortsetzung.*
 
       Sie können direkt weitermachen und neue Informationen oder Details hinzufügen:
       - Geben Sie einfach Ihre Nachricht ein, um die Beratung fortzusetzen.
-      - Alternativ können Sie auf *„Zurück“* klicken, um ins Hauptmenü zurückzukehren.
 
       Falls Sie Unterstützung benötigen oder Fragen haben, lassen Sie es uns wissen – wir stehen Ihnen jederzeit zur Seite.
 
       🛡️ *Wir kümmern uns um Ihr Anliegen – Schritt für Schritt.*  
-      `, [[{ text: "🏠 Zurück ins Hauptmenü" }]]);
-        request_chain.requests.push({ command_name: "beratung_gespraech", input: "" });
+      `, loOptions, {}, request_chain);
+        request_chain.requests.push({ command_name: "beratung_menu", input: "" });
     }
 });
 exports.anwalt_bot.addCommand({
@@ -387,7 +346,7 @@ exports.anwalt_bot.addCommand({
             await (0, endpointFunctions_1.handleFileUploadBeratung)(exports.anwalt_bot, request_chain, input, loBeratung, loTopic);
             return;
         }
-        if (input.startsWith(`💬 Gespräch fortsetzen`)) {
+        if (input.startsWith(`💬 Gespräch laden`)) {
             await exports.anwalt_bot.sendMessage(request_chain.user, (0, dedent_1.default) `
               💬 *Gespräch fortsetzen*
         
@@ -402,10 +361,10 @@ exports.anwalt_bot.addCommand({
                 exports.backNav,
                 [{ text: "📜 Verlauf laden" }],
                 [{ text: "✍️ Fortsetzen" }],
-            ]);
+            ], {}, request_chain);
             request_chain.requests.push({ command_name: "beratung_gespraech_fortsetzen", input: "" });
         }
-        else if (input.startsWith("🗂️ Status und Fortschritt")) {
+        else if (input.startsWith("🗂️ Status")) {
             await (0, endpointFunctions_1.handleStatusAndProgress)(exports.anwalt_bot, request_chain);
             request_chain.requests.push({ command_name: "beratung_status", input: "" });
         }
@@ -446,7 +405,7 @@ exports.anwalt_bot.addCommand({
           `;
             let loResponse = await ai.getAIAnswer(loPrompt, false);
             let loBeratungsMenu = bt.getBeratungsMenu(loBeratung);
-            await exports.anwalt_bot.sendMessage(request_chain.user, loResponse, loBeratungsMenu);
+            await exports.anwalt_bot.sendMessage(request_chain.user, loResponse, loBeratungsMenu, {}, request_chain);
             await bt.endLoadingBar(exports.anwalt_bot, request_chain.user, loLoadingContext, `🚫 Voraussetzungen für "${actionName}" nicht erfüllt!`);
         }
         else if (input.startsWith(`🟢`) || input.startsWith(`🟡`)) {
@@ -454,13 +413,147 @@ exports.anwalt_bot.addCommand({
             let action = loTopic.actions.find(a => a.name === actionName);
             console.log(`${JSON.stringify(action)}`);
             if (action) {
-                try {
-                    await action.onExecute(action, exports.anwalt_bot, request_chain, input);
+                let loMessage = "";
+                const missingInfos = action.optionalRequisites.filter(req => !loBeratung.infos.some(info => info.name === req));
+                if (missingInfos.length > 0) {
+                    loMessage = (0, dedent_1.default) `
+                Aktion: *${action.name}*
+            
+                ⚠️ Es fehlen folgende Informationen: 
+                ${missingInfos.map(i => `- ${i}`).join("\n")}
+            
+                Möchten Sie die Aktion trotzdem ausführen?`;
                 }
-                catch (err) {
-                    console.log(err.message);
+                else {
+                    loMessage = (0, dedent_1.default) `
+                Aktion: *${action.name}*
+            
+                ✅ Alle erforderlichen Informationen sind vorhanden.
+            
+                Möchten Sie die Aktion jetzt ausführen?`;
                 }
+                request_chain.data.action = action;
+                await exports.anwalt_bot.sendMessage(request_chain.user, loMessage, [exports.backNav, [{ text: "✅ Aktion ausführen" }]], {}, request_chain);
+                request_chain.requests.push({ command_name: "execute_action", input: "" });
             }
+        }
+        else if (input.startsWith(`-------------------`)) {
+        }
+        else {
+            (0, endpointFunctions_1.handleBeratungsGespräch)(exports.anwalt_bot, request_chain, input);
+        }
+    }
+});
+exports.anwalt_bot.addCommand({
+    name: "execute_action",
+    onExecute: async (request_chain, input) => {
+        let action = request_chain.data.action;
+        if (input.startsWith(`✅`)) {
+            try {
+                await action.onExecute(action, exports.anwalt_bot, request_chain, input);
+            }
+            catch (err) {
+                console.log(err.message);
+            }
+        }
+    }
+});
+exports.anwalt_bot.addCommand({
+    name: "create_widerspruch",
+    onExecute: async (request_chain, input) => {
+        let beratung = request_chain.data.beratung;
+        if (input.startsWith(`💾 Speichern`)) {
+            let widerspruch = request_chain.data.widerspruch;
+            let loTimestamp = Date.now();
+            let fileLink = `./files/widerspruch_${request_chain.user}_${beratung.name}_${loTimestamp}.pdf`;
+            beratung.actions.push({
+                name: "Widerspruchserklärung verfassen",
+                result: fileLink,
+                timestamp: loTimestamp
+            });
+            let loMandant = exports.db.mandanten.find(m => m.tg_id === request_chain.user);
+            if (loMandant) {
+                loMandant.beratungen.map(b => (b.name === beratung.name) ? beratung : b);
+                await bt.createPDF(widerspruch, fileLink);
+                await database.saveDatabase(exports.db);
+            }
+        }
+        else {
+            let loLoadingContext = await bt.initLoadingBar(exports.anwalt_bot, request_chain.user, `Wiedersrpuchserklärung wird bearbeitet...`);
+            // Infos aus der Beratung laden
+            let klausur = beratung.infos.find(i => i.name === "Klausur");
+            let korrektur = beratung.infos.find(i => i.name === "Korrektur");
+            let aufgabenstellung = beratung.infos.find(i => i.name === "Aufgabenstellung");
+            // Textextraktion
+            const klausurText = await bt.getTextFromFile(klausur.value);
+            const korrekturText = await bt.getTextFromFile(korrektur.value);
+            const JaPROText = await bt.getTextFromFile('./japrobw2023.txt');
+            let aufgabenstellungText = "Nicht vorhanden";
+            if (aufgabenstellung) {
+                aufgabenstellungText = await bt.getTextFromFile(aufgabenstellung.value);
+            }
+            // Prompt erstellen
+            const prompt = `
+          Ich benötige eine überarbeitete und verfeinerte Widerspruchsbegründung. Es gibt bereits eine bestehende Version, die auf den bereitgestellten Unterlagen basiert. Zudem liegt Benutzer-Feedback vor, das berücksichtigt werden muss. Ziel ist es, eine präzisere und rechtlich fundierte Begründung zu erstellen, die die vorhandenen Schwächen ausbessert und den Benutzeranforderungen entspricht.
+  
+          ### Bereitstellung von Unterlagen:
+          - **Abgetippter Text der Klausur:**
+          ${klausurText}
+          - **Korrektur der Klausur:**
+          ${korrekturText}
+          - **JaPro Baden Württemberg Stand 2023:**
+          ${JaPROText}
+  
+          ### Bestehende Version der Widerspruchsbegründung:
+          """
+          ${request_chain.data.action_result}
+          """
+  
+          ### Benutzer-Feedback:
+          """
+          ${input}
+          """
+  
+          ### Anforderungen an die neue Version:
+          1. **Überarbeitung und Verfeinerung:**
+          - Verbessere die bestehende Version in Sprache und Argumentation.
+          - Berücksichtige die Anmerkungen aus dem Benutzer-Feedback vollständig.
+          - Halte dich weiterhin an die Struktur und Anforderungen aus der ursprünglichen Aufgabe.
+  
+          2. **Struktur der überarbeiteten Begründung:**
+          1. **Einleitung:** Darstellung des Sachverhalts und der Verfahrenshistorie.
+          2. **Kernargumente:** Kritische Auseinandersetzung mit den Fehlern in der Klausurkorrektur.
+              - Konkrete Bezugnahme auf die Kriterien aus der JaPRO (BW).
+              - Verfassungsrechtliche Maßstäbe (z. B. Gleichbehandlungsgrundsatz, Willkürverbot).
+          3. **Forderungen:** Explizite Forderung nach Aufhebung des Bescheids und Neubewertung.
+  
+          3. **Detaillierte Anforderungen an die Argumentation:**
+          - Inwiefern die Korrekturmethodik den Anforderungen der JaPRO (BW) nicht entspricht.
+          - Welche inhaltlichen, methodischen oder formalen Fehler bei der Bewertung vorliegen.
+          - Hinweise auf willkürliche Bewertungen oder logische Brüche in der Argumentation des Korrektors.
+          - Bezugnahme auf relevante Urteile oder wissenschaftliche Studien (z. B. Fehleranfälligkeit bei Klausurbewertungen).
+  
+          4. **Zusätzliche Vorgaben:**
+          - Prägnante und überzeugende Sprache.
+  
+          ### Ziel:
+          Erstelle eine verbesserte und vollständig überarbeitete Widerspruchsbegründung, die die Anforderungen der ursprünglichen Aufgabe erfüllt und das Benutzer-Feedback integriert.
+      `;
+            // API-Aufruf
+            const response = await ai.openai.chat.completions.create({
+                model: "gpt-4-turbo", // GPT-4 Turbo mit großem Kontext
+                messages: [
+                    { role: "system", content: "Du bist ein erfahrener Anwalt für Prüfungsrecht. Erstelle eine professionelle Widerspruchsbegründung." },
+                    { role: "user", content: prompt },
+                ],
+                max_tokens: 4096, // Platz für die Antwort
+                temperature: 0.7,
+            });
+            let loWiderspruchserklärung = response.choices[0].message.content.trim();
+            console.log("Antwort der KI:", response.choices[0].message.content.trim());
+            bt.endLoadingBar(exports.anwalt_bot, request_chain.user, loLoadingContext, '✅ Widerspruchserklärung wurde generiert!');
+            await exports.anwalt_bot.sendMessage(request_chain.user, loWiderspruchserklärung);
+            request_chain.data.widerspruch = loWiderspruchserklärung;
         }
     }
 });
@@ -484,7 +577,10 @@ exports.anwalt_bot.addCommand({
                 return;
             }
             if (loInfo.type === 'text') {
-                await exports.anwalt_bot.sendMessage(request_chain.user, `📝 *Information*: "${loInfo.name}"\n\n📄 Wert:\n"${loInfo.value}"`, request_chain.data.last_menu);
+                await exports.anwalt_bot.sendMessage(request_chain.user, `📝 *Information*: "${loInfo.name}"\n📄 Wert:\n"${loInfo.value}"`, request_chain.data.last_menu);
+            }
+            else if (loInfo.type === "date") {
+                await exports.anwalt_bot.sendMessage(request_chain.user, `📝 *Information*: "${loInfo.name}"\n📄 Wert:"${new Date(loInfo.value).toLocaleDateString()}"`, request_chain.data.last_menu);
             }
             else if (loInfo.type === "file" || loInfo.type === "photo") {
                 await exports.anwalt_bot.sendDocument(request_chain.user, loInfo.value);
@@ -561,7 +657,7 @@ exports.anwalt_bot.addCommand({
             else {
                 loBeratung.infos.push(loNewInfo);
             }
-            await saveDatabase();
+            await database.saveDatabase(exports.db);
             await exports.anwalt_bot.sendMessage(request_chain.user, `✅ Informationen zu "${loInfo.name}" wurden erfolgreich ergänzt!`);
             await bt.sleep(1000);
             await (0, endpointFunctions_1.handleStatusAndProgress)(exports.anwalt_bot, request_chain);
@@ -572,41 +668,31 @@ exports.anwalt_bot.addCommand({
 exports.anwalt_bot.addCommand({
     name: "beratung_gespraech",
     onExecute: async (request_chain, input) => {
-        if (input.startsWith(`🏠 Zurück ins Hauptmenü`)) {
-            await (0, endpointFunctions_1.initBeratungMenu)(exports.anwalt_bot, request_chain, request_chain.data.beratung);
-            return;
-        }
-        const loMandant = exports.db.mandanten.find((m) => m.tg_id === request_chain.user);
-        const loBeratung = loMandant.beratungen.find((b) => b.name === request_chain.data.beratung.name);
-        if (!loBeratung) {
-            console.log(`FEHLER BERATUNG ${request_chain.data.beratung.name} NOT FOUND!`);
-            return;
-        }
-        let loTopic = exports.topics.find(t => t.name === loBeratung.topic);
-        if (!loTopic) {
-            console.log(`FEHLER TOPIC ${loBeratung.topic} NOT FOUND!`);
-            return;
-        }
-        const loLoadingContext = await bt.initLoadingBar(exports.anwalt_bot, request_chain.user);
-        loBeratung.verlauf.push(`User: ${input}`);
-        await saveDatabase();
-        let extractInfos = await ai.extractInfos(input, loTopic, loBeratung.infos);
-        if (extractInfos.length > 0) {
-            loBeratung.infos = bt.updateInfos(loBeratung.infos, extractInfos);
-            await saveDatabase();
-        }
-        const aiResponse = await ai.generateLegalAdvice(loBeratung);
-        loBeratung.verlauf.push(`Anwalt KI: ${aiResponse}`);
-        await saveDatabase();
-        await exports.anwalt_bot.sendMessage(request_chain.user, aiResponse, [[{ text: "🏠 Zurück ins Hauptmenü" }]]);
-        request_chain.requests.push({ command_name: "beratung_gespraech", input: "" });
-        // Ladeanimation beenden
-        bt.endLoadingBar(exports.anwalt_bot, request_chain.user, loLoadingContext);
-    },
+        await (0, endpointFunctions_1.handleBeratungsGespräch)(exports.anwalt_bot, request_chain, input);
+    }
 });
-exports.anwalt_bot.startListening();
-process.on('SIGINT', async () => {
+async function main() {
+    await initDBAndTopics();
+    await exports.anwalt_bot.startListening(database.requestsPath);
+    // Nachdem der Bot gestartet ist, kannst du noch einen Hinweis senden
+    // Beispiel: an alle User, die noch in user_requests sind, ein „Willkommens-Zurück“-Nachricht.
+    for (let i = 0; i < exports.anwalt_bot.user_requests.length; i++) {
+        let loLastOptions = null;
+        if (exports.anwalt_bot.user_requests[i].data.last_menu) {
+            loLastOptions = exports.anwalt_bot.user_requests[i].data.last_menu;
+        }
+        await exports.anwalt_bot.sendMessage(exports.anwalt_bot.user_requests[i].user, "🤖 Der Anwalts-Bot ist wieder am Start und bereit, Ihnen zu helfen! Was kann ich für Sie tun?", loLastOptions);
+    }
+}
+main().catch(err => {
+    console.error("Fehler beim Starten der Anwendung:", err);
+});
+process.once('SIGINT', async () => {
     console.log('Bot wird beendet. Säubere Ressourcen...');
-    await saveDatabase();
-    process.exit(0); // Prozess beenden
+    await database.saveDatabase(exports.db);
+    await database.saveRequestChains(exports.anwalt_bot.user_requests);
+    for (let i = 0; i < exports.anwalt_bot.user_requests.length; i++) {
+        await exports.anwalt_bot.sendMessage(exports.anwalt_bot.user_requests[i].user, "⚖️ Der Anwalts-Bot legt seine Robe ab und macht Feierabend. Bitte versuchen Sie es später erneut! 👋");
+    }
+    process.exit(0);
 });

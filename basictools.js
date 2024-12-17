@@ -44,16 +44,21 @@ exports.loop = loop;
 exports.sleep = sleep;
 exports.indexOfPropertyValue = indexOfPropertyValue;
 exports.initLoadingBar = initLoadingBar;
+exports.updateLoadingBar = updateLoadingBar;
 exports.endLoadingBar = endLoadingBar;
 exports.updateInfos = updateInfos;
 exports.getBeratungsMenu = getBeratungsMenu;
 exports.getTextFromFile = getTextFromFile;
+exports.downloadFile = downloadFile;
+exports.createPDF = createPDF;
 //BasicFuncitonality
 const fs = __importStar(require("fs"));
 const anwalt_1 = require("./anwalt");
 const main = __importStar(require("./anwalt"));
 const pdf_parse_1 = __importDefault(require("pdf-parse"));
 const docx_parser_1 = __importDefault(require("docx-parser"));
+const axios_1 = __importDefault(require("axios"));
+const pdfkit_1 = __importDefault(require("pdfkit"));
 exports.loadingSymbols = ["⚖️", "🔍", "✍️", "📂", "⏳"];
 exports.loadingText = "Die KI arbeitet an Ihrer Anfrage. Bitte einen Moment Geduld...";
 function isThisMonth(ts) {
@@ -112,31 +117,38 @@ async function initLoadingBar(bot, userId, text = exports.loadingText) {
     const messageId = await bot.sendMessage(userId, `${exports.loadingSymbols[0]} ${text}`);
     let step = 0;
     const startTime = Date.now();
-    // Animation starten
     const intervalId = setInterval(async () => {
-        step = (step + 1) % exports.loadingSymbols.length; // Durch die Symbole rotieren
+        step = (step + 1) % exports.loadingSymbols.length;
         await bot.editMessage(userId, messageId, `${exports.loadingSymbols[step]} ${text} (${Math.floor((Date.now() - startTime) / 1000)}s)`);
-    }, 1200); // Alle 2 Sekunden aktualisieren
+    }, 1200);
     return { messageId, intervalId, startTime };
 }
-// Funktion: Ladeanimation beenden
+async function updateLoadingBar(bot, userId, loadingContext, text) {
+    clearInterval(loadingContext.intervalId);
+    await sleep(2000);
+    await bot.editMessage(userId, loadingContext.messageId, text);
+    let step = 0;
+    const startTime = Date.now();
+    const intervalId = setInterval(async () => {
+        step = (step + 1) % exports.loadingSymbols.length;
+        await bot.editMessage(userId, loadingContext.messageId, `${exports.loadingSymbols[step]} ${text} (${Math.floor((Date.now() - startTime) / 1000)}s)`);
+    }, 1200);
+    return { messageId: loadingContext.messageId, intervalId, startTime };
+}
 async function endLoadingBar(bot, userId, loadingContext, finalMessage = "✅ *Fertig*: Ihre Antwort ist bereit!") {
-    clearInterval(loadingContext.intervalId); // Animation stoppen
-    // Abschlussnachricht senden
+    clearInterval(loadingContext.intervalId);
     await sleep(1200);
     await bot.editMessage(userId, loadingContext.messageId, finalMessage);
     await sleep(1200);
 }
 function updateInfos(existingInfos, newInfos) {
-    const updatedInfos = [...existingInfos]; // Kopie der bestehenden Infos
+    const updatedInfos = [...existingInfos];
     for (const newInfo of newInfos) {
         const existingIndex = updatedInfos.findIndex((info) => info.name === newInfo.name);
         if (existingIndex !== -1) {
-            // Information existiert bereits: Überschreiben
             updatedInfos[existingIndex] = newInfo;
         }
         else {
-            // Neue Information hinzufügen
             updatedInfos.push(newInfo);
         }
     }
@@ -167,11 +179,26 @@ function getBeratungsMenu(beratung) {
         }
         return [{ text: `${actionSymbol} ${action.name}` }];
     });
+    const totalInfoCount = topic.infoRequirements.length;
+    const completedInfoCount = beratung.infos.length;
+    const newInfoCount = beratung.infos.filter(i => i.new).length;
+    // Fortschritt in Prozent berechnen
+    const progressPercentage = (totalInfoCount > 0) ? Math.round((completedInfoCount / totalInfoCount) * 100) : 0;
+    // Fortschrittsbalken generieren
+    const progressBarLength = 5; // Länge des Balkens
+    const filledBars = Math.round((progressPercentage / 100) * progressBarLength);
+    const progressBar = `${"🟩".repeat(filledBars)}${"⬜".repeat(progressBarLength - filledBars)}`;
+    // Dynamischen Text erstellen
+    let progressText = `🗂️ Status`;
+    // Neue Infos markieren, falls vorhanden
+    //progressText = newInfoCount > 0 ? `${progressText} (${newInfoCount} ${(newInfoCount === 1) ? `neue Info` : `neue Infos`} ⚠️)` : progressText;
+    progressText = `${progressText}   ${progressBar} ${progressPercentage}%`;
     const loOptions = [
         anwalt_1.backNav,
-        [{ text: "💬 Gespräch fortsetzen" }],
-        [{ text: "🗂️ Status und Fortschritt" }],
-        ...dynamicOptions // Dynamische Aktionen hinzufügen
+        [{ text: `💬 Gespräch laden (${beratung.verlauf.length} Nachrichten)` }],
+        [{ text: progressText }],
+        [{ text: `********** ${dynamicOptions.length} ${(dynamicOptions.length === 1) ? `ausführbare Aktion` : `ausführbare Aktionen`} **********` }],
+        ...dynamicOptions
     ];
     return loOptions;
 }
@@ -201,4 +228,32 @@ async function getTextFromFile(filePath) {
         console.error(`Error reading file ${filePath}:`, error);
         return '';
     }
+}
+async function downloadFile(fileUrl, outputPath) {
+    const writer = fs.createWriteStream(outputPath);
+    const response = await axios_1.default.get(fileUrl, {
+        responseType: 'stream'
+    });
+    response.data.pipe(writer);
+    return new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+    });
+}
+// PDF erstellen mit pdfkit
+async function createPDF(text, filePath) {
+    return new Promise((resolve, reject) => {
+        const doc = new pdfkit_1.default({ size: 'A4', margin: 50 });
+        const stream = fs.createWriteStream(filePath);
+        doc.pipe(stream);
+        // Text im PDF darstellen
+        doc.font('Helvetica').fontSize(12).text(text, { align: 'justify' });
+        doc.end();
+        stream.on('finish', () => {
+            resolve(filePath);
+        });
+        stream.on('error', (err) => {
+            reject(err);
+        });
+    });
 }

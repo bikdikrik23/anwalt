@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.openai = void 0;
+exports.uploadDocument = uploadDocument;
 exports.getAIAnswer = getAIAnswer;
 exports.provideLegalInsights = provideLegalInsights;
 exports.requestDocuments = requestDocuments;
@@ -16,6 +17,25 @@ exports.openai = new OpenAI();
 const dedent_1 = __importDefault(require("dedent"));
 const anwalt_1 = require("./anwalt");
 const fs_1 = __importDefault(require("fs"));
+async function callAIWithRetries(prompt, validate, maxRetries = 3) {
+    let retries = 0;
+    while (retries < maxRetries) {
+        try {
+            const response = await getAIAnswer(prompt, true); // AI Call
+            console.log(`AI RESPONSE (Try ${retries + 1}):`, JSON.stringify(response));
+            if (validate(response)) {
+                return response;
+            }
+            console.warn(`Validation failed on try ${retries + 1}:`, response);
+        }
+        catch (error) {
+            console.error(`Error during AI call (Try ${retries + 1}):`, error);
+        }
+        retries++;
+    }
+    console.error("Max retries reached. Returning null.");
+    return null;
+}
 // Funktion für den Dateiupload
 async function uploadDocument(filePath, fileName) {
     try {
@@ -141,7 +161,7 @@ async function generateLegalAdvice(beratung) {
         return 'Technischer Fehler 723';
     }
 }
-async function extractInfos(input, topic, existingInfos) {
+async function extractInfos(input, topic, existingInfos, try_count = 1) {
     const loPrompt = (0, dedent_1.default) `
     Hier ist eine Eingabe eines Mandanten:
     "${input}"
@@ -157,6 +177,7 @@ async function extractInfos(input, topic, existingInfos) {
     2. Extrahiere relevante Informationen, die streng zu den Anforderungen des Themas passen.
       - **Orientiere dich ausschließlich an den vorgegebenen Anforderungen (oben gelistet).**
       - Falls eine Information nicht eindeutig zugeordnet werden kann, prüfe, ob eine allgemeine Kategorie (z. B. „Vertragsdaten“) existiert, und füge sie dort ein.
+      - **Datumwerte müssen im ISO-Format (YYYY-MM-DDTHH:mm:ss.sssZ) angegeben werden.**
       - Erfinde keine neuen Informationsnamen.
     3. Ergänze bestehende Informationen, falls neue Details hinzugefügt wurden.
     4. Überschreibe vorhandene Informationen, falls eine neue Version sinnvoller ist.
@@ -186,10 +207,15 @@ async function extractInfos(input, topic, existingInfos) {
     Hinweis: Verarbeite die Eingabe präzise und halte dich strikt an die oben definierten Anforderungen.
   `;
     try {
-        const response = await getAIAnswer(loPrompt, true); // JSON-Antwort
+        const validateResponse = (response) => {
+            if (!response || !Array.isArray(response.new_infos))
+                return false;
+            return response.new_infos.every((info) => info.name && info.type && info.value);
+        };
+        let response = await callAIWithRetries(loPrompt, validateResponse);
         console.log(`AI INFO EXTRACTION: ${JSON.stringify(response)}`);
-        if (response.new_infos) {
-            return response.new_infos;
+        if (response) {
+            return response.new_infos.map(i => { return { ...i, new: true }; });
         }
         else {
             return [];

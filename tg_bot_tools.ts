@@ -1,8 +1,8 @@
 const { Telegraf } = require('telegraf');
-const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 
+import * as fs from 'fs/promises';
 import * as bt from "./basictools"
 
 export const russian_proxy_ip = "37.18.73.94" //needed for better more reliable communication with telegram api
@@ -27,9 +27,9 @@ export class bot{
 
     constructor(tg_token: string, options: {button_type: "keyboard" | "inline"} = {button_type: "keyboard"}){
         this.commandList = []
-        this.user_requests = []
         this.tg_bot = new Telegraf(tg_token, {polling: true})
         this.options = options
+        this.user_requests = []
     }
 
     async getTgUsername(chat_id: number): Promise<string>{
@@ -185,9 +185,18 @@ export class bot{
         }
     }        
 
-    startListening(){ 
+    async startListening(request_cache_path: string = ""){ 
 
         this.tg_bot.launch()
+        
+        if(request_cache_path !== ""){
+            console.log(`READ FILE: ${request_cache_path}`)
+            let dbString = await fs.readFile(request_cache_path, 'utf-8');
+            console.log(`${dbString}`)
+            this.user_requests = JSON.parse(dbString) 
+        
+            console.log(`USER REQUEST CACHE LOADED SUCCESSFULLY: ${JSON.stringify(this.user_requests)}`)
+        }
 
         this.tg_bot.on('text', async (ctx: any) => {
 
@@ -236,7 +245,7 @@ export class bot{
             if(msgInTime){
                 const fileId = ctx.update.message.document.file_id;
                 const input = ctx.update.message.caption || ""; 
-                this.handleFile(ctx, fileId, input)
+                await this.handleFile(ctx, fileId, input)
             }
         })
 
@@ -249,10 +258,8 @@ export class bot{
             if (msgInTime) {
                 const fileId = ctx.update.message.photo[ctx.update.message.photo.length - 1].file_id; // Get the highest resolution photo
                 const input = ctx.update.message.caption || ""; 
-                this.handleFile(ctx, fileId, input)
+                await this.handleFile(ctx, fileId, input)
             }
         });
-
-        console.log("Bot is listening...")
     }
 }

@@ -33,60 +33,40 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.bot = exports.tg_group = exports.russian_proxy_port = exports.russian_proxy_ip = void 0;
-exports.downloadFile = downloadFile;
+exports.bot = exports.russian_proxy_port = exports.russian_proxy_ip = void 0;
 const { Telegraf } = require('telegraf');
-const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
+const fs = __importStar(require("fs/promises"));
+const bt = __importStar(require("./basictools"));
 exports.russian_proxy_ip = "37.18.73.94"; //needed for better more reliable communication with telegram api
 exports.russian_proxy_port = 5566;
-exports.tg_group = -1001845750277;
-//Eigene externe Libs
-const bt = __importStar(require("./basictools"));
-const documentTimeouts = {};
-async function downloadFile(fileUrl, outputPath) {
-    const writer = fs.createWriteStream(outputPath);
-    const response = await axios.get(fileUrl, {
-        responseType: 'stream'
-    });
-    response.data.pipe(writer);
-    return new Promise((resolve, reject) => {
-        writer.on('finish', resolve);
-        writer.on('error', reject);
-    });
-}
 class bot {
     commandList = [];
     user_requests;
-    tg_bot;
+    tg_bot; //Telegraf Bot Object
     options;
     constructor(tg_token, options = { button_type: "keyboard" }) {
         this.commandList = [];
-        this.user_requests = [];
         this.tg_bot = new Telegraf(tg_token, { polling: true });
         this.options = options;
+        this.user_requests = [];
     }
     async getTgUsername(chat_id) {
-        console.log("LOLOLOLOCHATLOLOLOLO25");
         let loChat = await this.tg_bot.telegram.getChat(chat_id);
-        console.log("LOLOLOLOCHATLOLOLOLO23");
         return loChat.username;
     }
     updateRequestChain(tg_chat_id, request_chain) {
-        for (let i = 0; i < this.user_requests.length; i++) {
-            if (this.user_requests[i].user == tg_chat_id) {
-                this.user_requests[i] = request_chain;
-            }
+        let loUserRequests = this.user_requests.find(ur => ur.user === tg_chat_id);
+        if (!loUserRequests) {
+            this.user_requests.push(request_chain);
+        }
+        else {
+            loUserRequests = request_chain;
         }
     }
     getRequestChainByUser(tg_chat_id) {
-        for (let i = 0; i < this.user_requests.length; i++) {
-            if (this.user_requests[i].user == tg_chat_id) {
-                return this.user_requests[i];
-            }
-        }
-        return undefined;
+        return this.user_requests.find(ur => ur.user === tg_chat_id);
     }
     getCommandByName(name) {
         let loIndex = bt.indexOfPropertyValue(this.commandList, 'name', name);
@@ -136,7 +116,7 @@ class bot {
                 padding: 50,
                 markdown: true,
                 button_type: this.options.button_type,
-                ...options // Überschreibt Standardwerte mit den übergebenen Werten
+                ...options
             };
             if (mergedOptions.markdown) {
                 mergedOptions.parse_mode = "Markdown";
@@ -179,10 +159,7 @@ class bot {
     }
     async sendDocument(chat_id, filePath) {
         try {
-            // Sende das Dokument
-            await this.tg_bot.telegram.sendDocument(chat_id, {
-                source: filePath, // Dateipfad des Dokuments
-            });
+            await this.tg_bot.telegram.sendDocument(chat_id, { source: filePath });
             console.log("Dokument erfolgreich gesendet!");
         }
         catch (error) {
@@ -191,9 +168,7 @@ class bot {
     }
     async handleFile(ctx, fileId, input = "") {
         let msgInTime = (ctx.update.message.date * 1000 > (new Date().getTime() - 10000));
-        console.log(exports.tg_group);
-        console.log(ctx.update.message.chat.id);
-        if ((msgInTime) && (ctx.update.message.chat.id != exports.tg_group)) {
+        if (msgInTime) {
             let loChatId = ctx.update.message.chat.id;
             let loRequestChain = this.getRequestChainByUser(loChatId);
             if (!Array.isArray(loRequestChain.data.files)) {
@@ -208,8 +183,15 @@ class bot {
             await this.handleRequest(loChatId, input);
         }
     }
-    startListening() {
+    async startListening(request_cache_path = "") {
         this.tg_bot.launch();
+        if (request_cache_path !== "") {
+            console.log(`READ FILE: ${request_cache_path}`);
+            let dbString = await fs.readFile(request_cache_path, 'utf-8');
+            console.log(`${dbString}`);
+            this.user_requests = JSON.parse(dbString);
+            console.log(`USER REQUEST CACHE LOADED SUCCESSFULLY: ${JSON.stringify(this.user_requests)}`);
+        }
         this.tg_bot.on('text', async (ctx) => {
             try {
                 console.log("Telegram Message Recieved!");
@@ -217,7 +199,7 @@ class bot {
                     let msgInTime = (ctx.update.message.date * 1000 > (new Date().getTime() - 10000));
                     console.log(`Message: ${ctx.update.message.text}`);
                     console.log(`CHAT ID: ${ctx.update.message.chat.id}`);
-                    if ((msgInTime) && (ctx.update.message.chat.id != exports.tg_group)) {
+                    if (msgInTime) {
                         await this.handleRequest(ctx.update.message.chat.id, ctx.update.message.text);
                     }
                 }
@@ -245,26 +227,23 @@ class bot {
         this.tg_bot.on('document', async (ctx) => {
             console.log("Telegram Message Recieved!");
             let msgInTime = (ctx.update.message.date * 1000 > (new Date().getTime() - 10000));
-            console.log(exports.tg_group);
             console.log(ctx.update.message.chat.id);
-            if ((msgInTime) && (ctx.update.message.chat.id != exports.tg_group)) {
+            if (msgInTime) {
                 const fileId = ctx.update.message.document.file_id;
                 const input = ctx.update.message.caption || "";
-                this.handleFile(ctx, fileId, input);
+                await this.handleFile(ctx, fileId, input);
             }
         });
         this.tg_bot.on('photo', async (ctx) => {
             console.log("Telegram Photo Message Received!");
             let msgInTime = (ctx.update.message.date * 1000 > (new Date().getTime() - 10000));
-            console.log(exports.tg_group);
             console.log(ctx.update.message.chat.id);
-            if ((msgInTime) && (ctx.update.message.chat.id != exports.tg_group)) {
+            if (msgInTime) {
                 const fileId = ctx.update.message.photo[ctx.update.message.photo.length - 1].file_id; // Get the highest resolution photo
                 const input = ctx.update.message.caption || "";
-                this.handleFile(ctx, fileId, input);
+                await this.handleFile(ctx, fileId, input);
             }
         });
-        console.log("Bot is listening...");
     }
 }
 exports.bot = bot;

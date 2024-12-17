@@ -6,6 +6,31 @@ import * as types from './types'
 import { topics } from './anwalt';
 import fs from "fs"
 
+async function callAIWithRetries<T>(prompt: string, validate: (response: any) => response is T, maxRetries: number = 3): Promise<T | null> {
+  let retries = 0;
+
+  while (retries < maxRetries) {
+    try {
+      const response = await getAIAnswer(prompt, true); // AI Call
+      
+      console.log(`AI RESPONSE (Try ${retries + 1}):`, JSON.stringify(response));
+
+      if (validate(response)) {
+        return response;
+      }
+
+      console.warn(`Validation failed on try ${retries + 1}:`, response);
+    } catch (error) {
+      console.error(`Error during AI call (Try ${retries + 1}):`, error);
+    }
+
+    retries++;
+  }
+
+  console.error("Max retries reached. Returning null.");
+  return null;
+}
+
 // Funktion für den Dateiupload
 export async function uploadDocument(filePath: string, fileName: string): Promise<string> {
   try {
@@ -144,7 +169,7 @@ export async function generateLegalAdvice(beratung: types.Beratung): Promise<str
   }
 }
 
-export async function extractInfos(input: string, topic: types.Topic, existingInfos: types.InfoData[]): Promise<types.InfoData[]> {
+export async function extractInfos(input: string, topic: types.Topic, existingInfos: types.InfoData[], try_count: number = 1): Promise<types.InfoData[]> {
   const loPrompt = dedent
   `
     Hier ist eine Eingabe eines Mandanten:
@@ -161,6 +186,7 @@ export async function extractInfos(input: string, topic: types.Topic, existingIn
     2. Extrahiere relevante Informationen, die streng zu den Anforderungen des Themas passen.
       - **Orientiere dich ausschließlich an den vorgegebenen Anforderungen (oben gelistet).**
       - Falls eine Information nicht eindeutig zugeordnet werden kann, prüfe, ob eine allgemeine Kategorie (z. B. „Vertragsdaten“) existiert, und füge sie dort ein.
+      - **Datumwerte müssen im ISO-Format (YYYY-MM-DDTHH:mm:ss.sssZ) angegeben werden.**
       - Erfinde keine neuen Informationsnamen.
     3. Ergänze bestehende Informationen, falls neue Details hinzugefügt wurden.
     4. Überschreibe vorhandene Informationen, falls eine neue Version sinnvoller ist.
@@ -192,14 +218,23 @@ export async function extractInfos(input: string, topic: types.Topic, existingIn
 
   try {
 
-    const response = await getAIAnswer(loPrompt, true); // JSON-Antwort
+    const validateResponse = (response: any): response is { new_infos: types.InfoData[] } => {
+      if (!response || !Array.isArray(response.new_infos)) return false;
+  
+      return response.new_infos.every(
+        (info) => info.name && info.type && info.value
+      );
+    };
+
+    let response = await callAIWithRetries(loPrompt, validateResponse)
     console.log(`AI INFO EXTRACTION: ${JSON.stringify(response)}`)
-    
-    if(response.new_infos){
-      return response.new_infos
+
+    if(response){
+      return response.new_infos.map(i=>{return {...i, new: true}})
     }else{
       return []
     }
+
   } catch (error) {
     console.error("Fehler bei der Informations-Extraktion:", error);
     return [];

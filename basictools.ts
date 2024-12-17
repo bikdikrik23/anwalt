@@ -3,10 +3,12 @@ import * as fs from 'fs';
 import * as types from './types';
 import { backNav } from './anwalt';
 import * as main from "./anwalt"
+import { bot } from './tg_bot_tools';
 
 import pdfParse from 'pdf-parse';
 import docxParser from 'docx-parser';
 import axios from 'axios';
+import PDFDocument from 'pdfkit';
 
 export const loadingSymbols = ["⚖️", "🔍", "✍️", "📂", "⏳"];
 export const loadingText = "Die KI arbeitet an Ihrer Anfrage. Bitte einen Moment Geduld...";
@@ -92,6 +94,26 @@ export async function initLoadingBar(bot: any,userId: number,text = loadingText)
     return { messageId, intervalId, startTime };
   }
   
+  export async function updateLoadingBar(bot: bot, userId: number, loadingContext: types.LoadingContext, text: string): Promise<types.LoadingContext>{
+    clearInterval(loadingContext.intervalId)
+    await sleep(2000)
+    await bot.editMessage(userId, loadingContext.messageId, text);
+
+    let step = 0;
+    const startTime = Date.now();
+  
+    const intervalId = setInterval(async () => {
+      step = (step + 1) % loadingSymbols.length;
+      await bot.editMessage(
+        userId,
+        loadingContext.messageId,
+        `${loadingSymbols[step]} ${text} (${Math.floor((Date.now() - startTime) / 1000)}s)`
+      );
+    }, 1200);
+
+    return { messageId: loadingContext.messageId, intervalId, startTime };
+  }
+
   export async function endLoadingBar(bot: any, userId: number, loadingContext: types.LoadingContext, finalMessage: string = "✅ *Fertig*: Ihre Antwort ist bereit!") {
     clearInterval(loadingContext.intervalId); 
   
@@ -153,12 +175,33 @@ export async function initLoadingBar(bot: any,userId: number,text = loadingText)
 
         return [{ text: `${actionSymbol} ${action.name}` }];
     });
+   
+    const totalInfoCount = topic.infoRequirements.length;
+    const completedInfoCount = beratung.infos.length;
+    const newInfoCount = beratung.infos.filter(i => i.new).length;
+    
+    // Fortschritt in Prozent berechnen
+    const progressPercentage = (totalInfoCount > 0) ? Math.round((completedInfoCount / totalInfoCount) * 100) : 0;
+    
+    // Fortschrittsbalken generieren
+    const progressBarLength = 5; // Länge des Balkens
+    const filledBars = Math.round((progressPercentage / 100) * progressBarLength);
+    const progressBar = `${"🟩".repeat(filledBars)}${"⬜".repeat(progressBarLength - filledBars)}`;
+    
+    // Dynamischen Text erstellen
+    let progressText = `🗂️ Status`;
+        
+    // Neue Infos markieren, falls vorhanden
+    //progressText = newInfoCount > 0 ? `${progressText} (${newInfoCount} ${(newInfoCount === 1) ? `neue Info` : `neue Infos`} ⚠️)` : progressText;
+
+    progressText = `${progressText}   ${progressBar} ${progressPercentage}%`
 
     const loOptions = [
         backNav,
-        [{ text: "💬 Gespräch fortsetzen" }],
-        [{ text: "🗂️ Status und Fortschritt" }],
-        ...dynamicOptions // Dynamische Aktionen hinzufügen
+        [{ text: `💬 Gespräch laden (${beratung.verlauf.length} Nachrichten)`  }],
+        [{ text: progressText }],
+        [{text: `********** ${dynamicOptions.length} ${(dynamicOptions.length === 1) ? `ausführbare Aktion` : `ausführbare Aktionen`} **********`}],
+        ...dynamicOptions 
     ];
 
     return loOptions;
@@ -202,3 +245,26 @@ export async function downloadFile(fileUrl: string, outputPath: string) {
         writer.on('error', reject);
     });
 }
+
+// PDF erstellen mit pdfkit
+export async function createPDF(text, filePath) {
+    return new Promise((resolve, reject) => {
+      const doc = new PDFDocument({ size: 'A4', margin: 50 });
+  
+      const stream = fs.createWriteStream(filePath);
+      doc.pipe(stream);
+  
+      // Text im PDF darstellen
+      doc.font('Helvetica').fontSize(12).text(text, { align: 'justify' });
+  
+      doc.end();
+  
+      stream.on('finish', () => {
+        resolve(filePath);
+      });
+  
+      stream.on('error', (err) => {
+        reject(err);
+      });
+    });
+  }
